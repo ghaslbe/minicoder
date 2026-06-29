@@ -339,7 +339,7 @@ Weiterarbeiten, nicht als fertiges Produkt.
 > 24 GB aber noch. Die Antwortzeit pro Schritt liegt dadurch bei einigen
 > Sekunden bis ~1–2 Minuten je nach Dateimenge.
 
-### Modell-Challenge: dieselbe CRUD-App von 6 Modellen
+### Modell-Challenge: dieselbe CRUD-App von mehreren Modellen
 
 Gleiche Aufgabe an mehrere Modelle (je `--yes --max-steps 30`, 10-Min-Timeout):
 eine **Personenverwaltung** mit Flask + SQLite Backend (CRUD-API für
@@ -352,9 +352,12 @@ OpenRouter.
 | **z-ai/glm-5.2** | ☁️ Cloud (OpenRouter) | **48 s** | 6/6 | $0.0174 | ✅ vollständig, alle 4 Endpunkte, sauberes CRUD-Frontend |
 | **deepseek/deepseek-v4-pro** | ☁️ Cloud (OpenRouter) | 55 s | 6/6 | $0.0101 | ✅ vollständig, alle 4 Endpunkte, sauberes CRUD-Frontend |
 | **qwen3-coder:30b** | 💻 Lokal (Mac mini) | 593 s | 6/6 | – | ✅ vollständig (Sieger der lokalen) |
+| **gemma4:26b-mlx** | 💻 Lokal (Mac mini) | 261 s | 6/6 | – | ✅ vollständig, alle 4 Endpunkte, Frontend mit Edit/Delete |
 | gemma3:4b | 💻 Lokal (Mac mini) | 189 s | 2 | – | ⚠️ nur DB-Stub (kein `@app.route`), kein Frontend |
 | gemma3:12b | 💻 Lokal (Mac mini) | 186 s | 0 | – | ❌ Code ok, aber `write_files`-JSON ungültig → nichts geschrieben |
 | gpt-oss:20b | 💻 Lokal (Mac mini) | 1 s | 0 | – | ❌ leere Antwort (Reasoning-Modell, `/v1`-inkompatibel) |
+| qwen3.6:35b-mlx | 💻 Lokal (Mac mini) | – | – | – | ⏳ Server liefert HTTP 500 (Modell noch nicht lauffähig) |
+| qwen3.6:27b-mlx | 💻 Lokal (Mac mini) | – | – | – | ⏳ Server liefert HTTP 500 (Modell noch nicht lauffähig) |
 
 > **Lokal** = Ollama auf dem Mac mini M4 Pro (24 GB, `num_ctx` 128k), kostenlos
 > aber langsam. **Cloud** = OpenRouter (bezahlt pro Token, dafür sehr schnell).
@@ -369,8 +372,13 @@ OpenRouter `usage.cost`.
   `deepseek-v4-pro` liefern die komplette App in **~50 s für 1–2 Cent** — rund
   **12× schneller** als das lokale `qwen3-coder:30b` (≈10 Min), das dafür
   kostenlos und offline ist.
-- **Coding-Spezialist gewinnt lokal:** `qwen3-coder:30b` ist das einzige lokale
-  Modell, das die Multi-File-Aufgabe sauber durchzieht.
+- **Coding-Spezialist gewinnt lokal — aber nicht allein:** `qwen3-coder:30b` und
+  `gemma4:26b-mlx` ziehen die Multi-File-Aufgabe sauber durch; gemma4 ist dabei
+  mit 261 s sogar gut 2× schneller. Die kleineren Gemmas (4b/12b) scheitern.
+- **Frisch geladene Modelle erst prüfen:** `qwen3.6:27b/35b-mlx` tauchten zwar in
+  der Modellliste auf, lieferten aber serverseitig **HTTP 500** — also (noch)
+  nicht lauffähig (Download/MLX-Konvertierung oder fehlende Ollama-Unterstützung).
+  Ein Listen-Eintrag heißt nicht automatisch „einsatzbereit".
 - **Protokoll-Disziplin ≈ Code-Qualität.** `gemma3:12b` *könnte* es, scheitert
   aber am validen JSON für `write_files` (doppelter `files`-Key, kaputte
   Escapes). Tool-Schwachpunkt: ein toleranterer Parser würde solche Modelle retten.
