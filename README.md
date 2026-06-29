@@ -94,8 +94,37 @@ und zeigt alle IDs (kombinierbar mit `--base-url`).
 | `--model M`      | Modell wählen (Default `qwen3-coder:30b`)              |
 | `--base-url URL` | Server-Basis-URL (Default `http://localhost:11434/v1`)|
 | `--list-models`  | Verfügbare Modelle des Servers anzeigen und beenden   |
+| `--proxy URL`    | HTTP(S)-Proxy (z. B. Zscaler/Firmennetz)              |
+| `--ca-bundle P`  | Pfad zu eigenem CA-Zertifikat (z. B. Zscaler-Root)    |
+| `--insecure`     | TLS-Prüfung abschalten (nur als Notnagel)             |
 | `--yes`          | Alle Schreib-/Run-Aktionen ohne Rückfrage ausführen   |
 | `-h`, `--help`   | Hilfe anzeigen                                         |
+
+### Firmennetz / Zscaler
+
+In Umgebungen mit Zscaler (oder anderem Firmenproxy) schlägt der direkte Zugriff
+oft fehl:
+
+- **`getaddrinfo failed`** → DNS wird nicht direkt aufgelöst, der Traffic muss
+  durch den Proxy. Proxy setzen:
+
+  ```bash
+  python3 mc.py --proxy http://dein-proxy:8080 --list-models
+  # oder per Env-Variable:
+  export HTTPS_PROXY=http://dein-proxy:8080
+  ```
+
+- **`CERTIFICATE_VERIFY_FAILED`** → Zscaler bricht HTTPS mit eigenem Zertifikat
+  auf. Firmen-CA angeben (empfohlen) oder Prüfung umgehen:
+
+  ```bash
+  python3 mc.py --ca-bundle /pfad/zur/zscaler-root.pem "..."
+  python3 mc.py --insecure "..."        # nur als Notnagel
+  ```
+
+Entsprechende Env-Variablen: `MC_PROXY`, `MC_CA_BUNDLE` (sowie die Standard-Vars
+`HTTP_PROXY` / `HTTPS_PROXY`, die `mc` automatisch beachtet). `mc` gibt bei
+solchen Fehlern direkt einen passenden Hinweis aus.
 
 ### Umgebungsvariablen
 
@@ -104,6 +133,8 @@ und zeigt alle IDs (kombinierbar mit `--base-url`).
 | `MC_BASE_URL`   | `http://localhost:11434/v1` | Basis-URL der Schnittstelle            |
 | `MC_MODEL`      | `qwen3-coder:30b`           | Default-Modell                         |
 | `MC_API_KEY`    | *(leer)*                    | Optionaler Bearer-Token, falls nötig   |
+| `MC_PROXY`      | *(leer)*                    | HTTP(S)-Proxy (Zscaler/Firmennetz)     |
+| `MC_CA_BUNDLE`  | *(leer)*                    | Pfad zu eigenem CA-Zertifikat          |
 
 ## Aktionen des Agenten
 

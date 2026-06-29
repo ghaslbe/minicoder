@@ -35,12 +35,19 @@ import os
 import re
 import subprocess
 import sys
+import ssl
 import urllib.request
 import urllib.error
 
 BASE_URL = os.environ.get("MC_BASE_URL", "http://localhost:11434/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("MC_MODEL", "qwen3-coder:30b")
 API_KEY = os.environ.get("MC_API_KEY", "")
+
+# Netzwerk: in Firmenumgebungen (z.B. Zscaler) muss der Traffic durch einen Proxy,
+# und das TLS wird oft mit einem eigenen CA-Zertifikat aufgebrochen.
+PROXY = os.environ.get("MC_PROXY", "")              # z.B. http://proxy:8080
+CA_BUNDLE = os.environ.get("MC_CA_BUNDLE", "")       # Pfad zur Zscaler-CA (.pem)
+INSECURE = False                                     # TLS-Pruefung abschalten (Notnagel)
 
 MAX_STEPS = 25          # Sicherheitslimit pro Aufgabe
 MAX_OUTPUT_CHARS = 8000  # Trunkierung von Tool-Ausgaben an das Modell
@@ -79,6 +86,50 @@ def banner(msg):
 
 # --------------------------- HTTP / API-Aufruf -----------------------------
 
+def build_opener():
+    """Baut einen urllib-Opener mit Proxy- und TLS-Einstellungen.
+
+    - MC_PROXY / --proxy : erzwingt einen HTTP(S)-Proxy (sonst HTTP(S)_PROXY aus env).
+    - MC_CA_BUNDLE / --ca-bundle : eigenes CA-Zertifikat (z.B. Zscaler-Root).
+    - --insecure : TLS-Pruefung komplett aus (nur als Notnagel).
+    """
+    handlers = []
+
+    if PROXY:
+        handlers.append(urllib.request.ProxyHandler({"http": PROXY, "https": PROXY}))
+    # ohne explizite Angabe nutzt urllib automatisch HTTP_PROXY/HTTPS_PROXY aus env.
+
+    if INSECURE:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    elif CA_BUNDLE:
+        ctx = ssl.create_default_context(cafile=CA_BUNDLE)
+    else:
+        ctx = ssl.create_default_context()
+    handlers.append(urllib.request.HTTPSHandler(context=ctx))
+
+    return urllib.request.build_opener(*handlers)
+
+
+def net_error(reason):
+    """Erzeugt eine verstaendliche Fehlermeldung inkl. Hinweisen fuer
+    Firmenumgebungen wie Zscaler."""
+    txt = str(reason)
+    msg = f"\n{C.RED}Verbindungsfehler:{C.RESET} {txt}"
+    if "getaddrinfo" in txt or "Name or service" in txt or "nodename" in txt:
+        msg += (f"\n{C.YELLOW}DNS-Aufloesung fehlgeschlagen — typisch hinter Zscaler/Firmenproxy."
+                f"\nSetze einen Proxy, z.B.:{C.RESET}\n"
+                f"  export HTTPS_PROXY=http://dein-proxy:8080   (oder --proxy ...)\n"
+                f"  python3 mc.py --proxy http://dein-proxy:8080 --list-models")
+    elif "CERTIFICATE_VERIFY_FAILED" in txt or "certificate" in txt.lower():
+        msg += (f"\n{C.YELLOW}TLS-Zertifikat nicht vertrauenswuerdig — Zscaler bricht HTTPS auf."
+                f"\nGib die Firmen-CA an oder umgehe die Pruefung:{C.RESET}\n"
+                f"  python3 mc.py --ca-bundle /pfad/zur/zscaler-root.pem ...\n"
+                f"  python3 mc.py --insecure ...   (nur als Notnagel)")
+    return msg
+
+
 def chat_stream(messages, model):
     """Ruft /chat/completions im Streaming-Modus auf und gibt den vollen Text
     zurueck (waehrend des Empfangs wird live ausgegeben)."""
@@ -92,7 +143,7 @@ def chat_stream(messages, model):
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     parts = []
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with build_opener().open(req, timeout=300) as resp:
             for raw in resp:
                 line = raw.decode("utf-8", "replace").strip()
                 if not line or not line.startswith("data:"):
@@ -114,7 +165,7 @@ def chat_stream(messages, model):
         body = e.read().decode("utf-8", "replace")[:300]
         raise SystemExit(f"\n{C.RED}HTTP {e.code} vom Endpoint:{C.RESET} {body}")
     except urllib.error.URLError as e:
-        raise SystemExit(f"\n{C.RED}Verbindungsfehler:{C.RESET} {e.reason}")
+        raise SystemExit(net_error(e.reason))
     print()
     return "".join(parts)
 
@@ -127,12 +178,12 @@ def list_models():
         headers["Authorization"] = f"Bearer {API_KEY}"
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with build_opener().open(req, timeout=30) as resp:
             obj = json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as e:
         raise SystemExit(f"{C.RED}HTTP {e.code} beim Abruf der Modelle.{C.RESET}")
     except urllib.error.URLError as e:
-        raise SystemExit(f"{C.RED}Verbindungsfehler:{C.RESET} {e.reason}")
+        raise SystemExit(net_error(e.reason))
     return sorted(m.get("id", "?") for m in obj.get("data", []))
 
 
@@ -313,17 +364,26 @@ def run_task(messages, model):
 
 
 def main():
-    global AUTO_YES, BASE_URL
+    global AUTO_YES, BASE_URL, PROXY, CA_BUNDLE, INSECURE
     ap = argparse.ArgumentParser(description="Mini Coding Tool (Ollama / OpenAI-kompatibel)")
     ap.add_argument("task", nargs="*", help="Aufgabe / Prompt (optional; sonst interaktiv)")
     ap.add_argument("--model", default=DEFAULT_MODEL, help=f"Modell (default {DEFAULT_MODEL})")
     ap.add_argument("--base-url", default=BASE_URL,
                     help=f"Server-Basis-URL (default {BASE_URL})")
     ap.add_argument("--list-models", action="store_true", help="Verfuegbare Modelle anzeigen und beenden")
+    ap.add_argument("--proxy", default=PROXY,
+                    help="HTTP(S)-Proxy, z.B. http://proxy:8080 (Zscaler/Firmennetz)")
+    ap.add_argument("--ca-bundle", default=CA_BUNDLE,
+                    help="Pfad zu eigenem CA-Zertifikat (z.B. Zscaler-Root .pem)")
+    ap.add_argument("--insecure", action="store_true",
+                    help="TLS-Pruefung abschalten (nur als Notnagel)")
     ap.add_argument("--yes", action="store_true", help="Alle Aktionen ohne Rueckfrage ausfuehren")
     args = ap.parse_args()
     AUTO_YES = args.yes
     BASE_URL = args.base_url.rstrip("/")
+    PROXY = args.proxy
+    CA_BUNDLE = args.ca_bundle
+    INSECURE = args.insecure
 
     if args.list_models:
         print(f"{C.CYAN}Modelle @ {BASE_URL}:{C.RESET}")
