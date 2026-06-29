@@ -7,6 +7,23 @@ Das Modell bekommt eine Aufgabe, plant in kleinen Schritten und kann dabei
 Dateien lesen/schreiben, Verzeichnisse auflisten und Shell-Kommandos ausführen.
 Keine externen Dependencies — nur die Python-Standardbibliothek.
 
+> ## ⚠️ Warnung — Benutzung auf eigene Gefahr
+>
+> `mc` lässt ein KI-Modell **Dateien anlegen, überschreiben und löschen** sowie
+> **beliebige Shell-Kommandos ausführen**. Dadurch kann es Daten verändern oder
+> unwiderruflich vernichten und im schlimmsten Fall **dein Computersystem
+> beschädigen**. Das Modell kann sich irren oder unerwartete Befehle erzeugen.
+>
+> - **Benutzung erfolgt vollständig auf eigene Gefahr** — der Autor übernimmt
+>   **keinerlei Haftung** für Schäden, Datenverlust oder Folgekosten (siehe
+>   [`LICENSE`](LICENSE)).
+> - Nutze `mc` nur in **Verzeichnissen/Umgebungen, deren Inhalt du zur Not
+>   verlieren kannst** — idealerweise in einem Repo mit sauberem Git-Stand,
+>   einem Container oder einer VM.
+> - Prüfe jede Schreib-/Run-Aktion vor dem Bestätigen. Das Flag **`--yes`**
+>   schaltet alle Rückfragen ab und ist entsprechend **gefährlich** — bewusst
+>   und nur in isolierten Umgebungen einsetzen.
+
 ## Hintergrund: warum ein eigenes Protokoll?
 
 Nicht jeder Ollama-Endpoint unterstützt **natives OpenAI Tool-/Function-Calling** —
