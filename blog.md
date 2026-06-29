@@ -370,6 +370,19 @@ auch hier griff der System-Message-Fix. Fazit zu Ornith: schnell, protokolltreu,
 funktional sauber; beim Styling minimal (Inline-Styles statt CSS-Datei), aber
 keineswegs nackt.
 
+Am aufschlussreichsten war der **Werkzeug-Instinkt**: Beim Hilfe-Umbau (die ganze
+`App.jsx` wird strukturell zur Router-Komponente) wählte Ornith `write_file` — eine
+Vollneufassung, sinnvoll, weil sich die Datei fundamental ändert. Beim *nächsten*
+Auftrag, die Datenbank in der Hilfe zu dokumentieren (rein additiv: ein Abschnitt
+einfügen), wählte es auf die Anweisung hin sauber **`edit_file`** — gezieltes
+Einfügen, und platzierte den Abschnitt klug zwischen „Navigation" und „Technische
+Details", *ohne* die Redundanz, in die qwopus beim selben Auftrag gelaufen war
+(zweiter „Datenbank"-Abschnitt neben einem bestehenden). Genau **das** ist der
+Unterschied eines agentisch trainierten Modells: nicht nur Code schreiben, sondern
+das *richtige Werkzeug* für die jeweilige Änderung wählen und den Bestand
+respektieren. Werkzeug (`edit_file`) **und** Modellurteil griffen hier zum ersten
+Mal perfekt ineinander.
+
 ---
 
 ## 7. Stromkosten-Rechnung (Mac mini M4 Pro)
@@ -407,3 +420,86 @@ im Prompt. Ein Agent ist nur so gut wie seine Fähigkeit, mit den Unzulänglichk
 der Modelle umzugehen — abgeschnittene Antworten, vergessene Klammern, lange
 Wartezeiten. Genau dort, nicht in der Code-Generierung, wird ein nützliches
 Werkzeug gemacht.
+
+---
+
+## Anhang: Die `mc`-Aufrufe & Prompts
+
+Zur Nachvollziehbarkeit die tatsächlich verwendeten Aufrufe. `$BASE` steht für die
+OpenAI-kompatible Endpoint-URL (`--base-url …/v1`), `$MODEL` für die jeweilige
+Modell-ID. Alle Läufe mit `--yes` (keine Rückfragen) und einem `--max-steps`-Limit.
+
+### Benchmark-Aufgabe (identisch für alle Modelle)
+
+```bash
+python3 mc.py --base-url $BASE --model $MODEL --yes --max-steps 30 "$PROMPT"
+```
+
+`$PROMPT`:
+
+> Erstelle eine einfache CRUD-Webanwendung 'Personenverwaltung'.
+> BACKEND in backend/ : Flask + SQLite (Datei personen.db), Tabelle person mit
+> Spalten id (autoincrement), name, adresse, telefon. REST-API mit flask-cors:
+> GET /api/persons (alle), POST /api/persons (anlegen), PUT /api/persons/<id>
+> (bearbeiten), DELETE /api/persons/<id> (loeschen). Dateien backend/app.py und
+> backend/requirements.txt. Die Tabelle beim Start automatisch anlegen.
+> FRONTEND in frontend/ : React-App. Dateien frontend/package.json,
+> frontend/public/index.html, frontend/src/index.js, frontend/src/App.jsx.
+> App.jsx zeigt alle Personen in einer Tabelle und erlaubt Anlegen, Bearbeiten und
+> Loeschen ueber ein Formular; spricht das Backend per fetch auf
+> http://localhost:5000 an. Nutze die write_files-Aktion, um mehrere Dateien auf
+> einmal zu schreiben. Lege nur Dateien an, KEINE npm- oder pip-Installation.
+
+### Iteration 1 — Footer + Erklärseite (auf die bestehende App)
+
+> Erweitere die bestehende React-App (frontend/src/App.jsx …). Lies App.jsx zuerst.
+> 1) Fuege einen Footer am Seitenende ein mit dem Text '(c) qwopus 2026'.
+> 2) Fuege eine einfache Unterseite/Ansicht 'Ueber diese App' hinzu … ueber einen
+> useState-Umschalter/Tab …, KEIN react-router. Behalte die bestehende CRUD-Funktion
+> bei.
+
+### Iteration 2 — Komponenten-Split + echtes Routing + ausführliche Hilfe
+
+> Ueberarbeite das React-Frontend (frontend/src/). Lies zuerst App.jsx.
+> 1) TEILE das Frontend auf: Personenverwaltung und Hilfe in EIGENE Komponenten
+> (PersonenView.jsx, HilfeView.jsx) und importiere sie in App.jsx.
+> 2) ECHTES URL-Routing OHNE Bibliotheken (kein react-router) ueber
+> window.location.hash. '#/' zeigt die Personenverwaltung, '#/hilfe' die Hilfe …
+> 3) Die HilfeView soll AUSFUEHRLICH erklaeren wie die Anwendung funktioniert …
+> Nutze edit_file fuer kleine Aenderungen und write_files fuer neue Dateien.
+
+### Iteration 3 — Bug-Fix per `edit_file` (404 in DELETE-Route)
+
+> In backend/app.py gibt die DELETE-Route faelschlich immer {ok:true} zurueck, auch
+> wenn die id nicht existiert. Aendere NUR diese Route mit edit_file so, dass sie
+> 404 mit {'error':'nicht gefunden'} zurueckgibt, wenn keine Zeile geloescht wurde
+> (pruefe cur.rowcount). Nutze edit_file, nicht write_file.
+
+### Iteration 4 — DB-/API-Doku in die Hilfe einfügen (`edit_file`)
+
+> Erweitere die Hilfeseite … um zwei zusaetzliche Abschnitte … 1) 'Datenbank':
+> SQLite (Datei personen.db), Tabelle 'person' mit Spalten … 2) 'API-Endpunkte':
+> GET/POST/PUT/DELETE /api/persons … Lies … zuerst und aendere NUR die noetige
+> Stelle mit der edit_file-Aktion … schreibe NICHT die ganze Datei neu.
+
+### Ornith — gleiche Erweiterungen am eigenen Build
+
+> (Hilfe + Routing) Erweitere die React-App in frontend/src/App.jsx. Lies sie zuerst.
+> 1) ECHTES URL-Routing OHNE Bibliotheken ueber window.location.hash … '#/hilfe'
+> zeigt eine Hilfeseite … 2) Navigation oben … 3) Die Hilfeseite beschreibt die App
+> ausfuehrlich … 4) Behalte die bestehende CRUD-Funktion komplett bei …
+
+> (DB-Doku) Erweitere die Hilfeseite in frontend/src/App.jsx (Funktion
+> renderHelpPage) … Fuege einen NEUEN Abschnitt 'Datenbank' ein … Tabelle 'person'
+> mit Spalten id (INTEGER, PRIMARY KEY, AUTOINCREMENT), name/adresse/telefon (TEXT,
+> NOT NULL) … REST-Endpunkte … Aendere NUR die noetige Stelle mit edit_file …
+
+### Weitere nützliche Aufrufe
+
+```bash
+python3 mc.py --list-models                       # Modelle des Endpoints
+python3 mc.py --debug-net                          # DNS/TCP/Proxy-Diagnose
+python3 mc.py --plan "<aufgabe>"                   # erst Plan zeigen + bestaetigen
+python3 mc.py -v "<aufgabe>"                        # mit Statuszeilen/Spinner
+python3 mc.py --proxy http://USER:PASS@host:port … # hinter Firmenproxy
+```
