@@ -35,6 +35,7 @@ import os
 import re
 import subprocess
 import sys
+import http.client
 import ssl
 import urllib.request
 import urllib.error
@@ -115,19 +116,36 @@ def build_opener():
 def net_error(reason):
     """Erzeugt eine verstaendliche Fehlermeldung inkl. Hinweisen fuer
     Firmenumgebungen wie Zscaler."""
-    txt = str(reason)
+    txt = str(reason) or reason.__class__.__name__
+    low = txt.lower()
     msg = f"\n{C.RED}Verbindungsfehler:{C.RESET} {txt}"
     if "getaddrinfo" in txt or "Name or service" in txt or "nodename" in txt:
         msg += (f"\n{C.YELLOW}DNS-Aufloesung fehlgeschlagen — typisch hinter Zscaler/Firmenproxy."
                 f"\nSetze einen Proxy, z.B.:{C.RESET}\n"
                 f"  export HTTPS_PROXY=http://dein-proxy:8080   (oder --proxy ...)\n"
                 f"  python3 mc.py --proxy http://dein-proxy:8080 --list-models")
-    elif "CERTIFICATE_VERIFY_FAILED" in txt or "certificate" in txt.lower():
+    elif any(k in low for k in ("closed connection", "remotedisconnected", "reset",
+                                "broken pipe", "refused", "bad gateway", "502")):
+        msg += (f"\n{C.YELLOW}Der Proxy hat die Verbindung abgewiesen/geschlossen. Wahrscheinlich:{C.RESET}\n"
+                f"  1. Proxy braucht Login -> Zugangsdaten in die URL:\n"
+                f"     python3 mc.py --proxy http://USER:PASS@proxy:8080 ...\n"
+                f"  2. Falscher Proxy-Host/-Port -> echten Proxy pruefen:\n"
+                f"     echo $HTTPS_PROXY   bzw. System-/Browser-Proxyeinstellungen\n"
+                f"  3. Direkt mit curl testen:\n"
+                f"     curl -v -x http://proxy:8080 {BASE_URL}/models")
+    elif "407" in txt or "authentication" in low:
+        msg += (f"\n{C.YELLOW}Proxy verlangt Authentifizierung (407). Zugangsdaten mitgeben:{C.RESET}\n"
+                f"  python3 mc.py --proxy http://USER:PASS@proxy:8080 ...")
+    elif "certificate_verify_failed" in low or "certificate" in low:
         msg += (f"\n{C.YELLOW}TLS-Zertifikat nicht vertrauenswuerdig — Zscaler bricht HTTPS auf."
                 f"\nGib die Firmen-CA an oder umgehe die Pruefung:{C.RESET}\n"
                 f"  python3 mc.py --ca-bundle /pfad/zur/zscaler-root.pem ...\n"
                 f"  python3 mc.py --insecure ...   (nur als Notnagel)")
     return msg
+
+
+# Netzwerkfehler, die nicht alle URLError sind (RemoteDisconnected ist OSError).
+NET_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError)
 
 
 def chat_stream(messages, model):
@@ -164,8 +182,8 @@ def chat_stream(messages, model):
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")[:300]
         raise SystemExit(f"\n{C.RED}HTTP {e.code} vom Endpoint:{C.RESET} {body}")
-    except urllib.error.URLError as e:
-        raise SystemExit(net_error(e.reason))
+    except NET_ERRORS as e:
+        raise SystemExit(net_error(getattr(e, "reason", e)))
     print()
     return "".join(parts)
 
@@ -182,8 +200,8 @@ def list_models():
             obj = json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as e:
         raise SystemExit(f"{C.RED}HTTP {e.code} beim Abruf der Modelle.{C.RESET}")
-    except urllib.error.URLError as e:
-        raise SystemExit(net_error(e.reason))
+    except NET_ERRORS as e:
+        raise SystemExit(net_error(getattr(e, "reason", e)))
     return sorted(m.get("id", "?") for m in obj.get("data", []))
 
 

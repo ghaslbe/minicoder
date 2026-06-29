@@ -114,6 +114,17 @@ oft fehl:
   export HTTPS_PROXY=http://dein-proxy:8080
   ```
 
+- **`remote end closed connection without response`** (bzw. *connection reset /
+  refused*) → der Proxy wird zwar erreicht, weist die Verbindung aber ab. Meist:
+  Proxy braucht **Login**, oder **falscher Host/Port**. Zugangsdaten mitgeben und
+  Proxy gegenprüfen:
+
+  ```bash
+  python3 mc.py --proxy http://USER:PASS@proxy:8080 "..."
+  echo $HTTPS_PROXY                                  # echten Proxy prüfen
+  curl -v -x http://proxy:8080 https://server/v1/models   # direkt testen
+  ```
+
 - **`CERTIFICATE_VERIFY_FAILED`** → Zscaler bricht HTTPS mit eigenem Zertifikat
   auf. Firmen-CA angeben (empfohlen) oder Prüfung umgehen:
 
