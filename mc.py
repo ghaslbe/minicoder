@@ -224,6 +224,57 @@ def list_models():
     return sorted(m.get("id", "?") for m in obj.get("data", []))
 
 
+def debug_net():
+    """Gibt aus, welche Proxy-/Netzwerk-Konfiguration das System meldet.
+    Hilft, hinter Zscaler den ECHTEN Proxy zu finden statt zu raten."""
+    print(f"{C.CYAN}{C.BOLD}Netzwerk-Diagnose{C.RESET}")
+    print(f"  Plattform        : {sys.platform}")
+    print(f"  Ziel (BASE_URL)  : {BASE_URL}")
+
+    print(f"\n{C.BOLD}Vom System gemeldete Proxies{C.RESET} (urllib.getproxies):")
+    sysproxies = urllib.request.getproxies()
+    if sysproxies:
+        for k, v in sysproxies.items():
+            print(f"  {k:6} -> {v}")
+    else:
+        print("  (keine) — evtl. PAC-Datei oder transparenter Proxy")
+
+    print(f"\n{C.BOLD}Proxy-Umgebungsvariablen{C.RESET}:")
+    found = False
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+                "http_proxy", "https_proxy", "no_proxy"):
+        val = os.environ.get(var)
+        if val:
+            print(f"  {var} = {val}")
+            found = True
+    if not found:
+        print("  (keine gesetzt)")
+
+    # Windows: PAC-Datei (AutoConfigURL) auslesen — die haeufigste Zscaler-Variante.
+    if sys.platform == "win32":
+        print(f"\n{C.BOLD}Windows Internet-Settings{C.RESET}:")
+        try:
+            import winreg
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+            for name in ("ProxyEnable", "ProxyServer", "AutoConfigURL"):
+                try:
+                    val, _ = winreg.QueryValueEx(key, name)
+                    print(f"  {name} = {val}")
+                except FileNotFoundError:
+                    pass
+            print(f"  {C.YELLOW}Falls AutoConfigURL gesetzt ist: PAC-Datei oeffnen und nach "
+                  f"PROXY-Eintraegen fuer den Zielhost suchen.{C.RESET}")
+        except Exception as e:
+            print(f"  (Registry nicht lesbar: {e})")
+
+    print(f"\n{C.BOLD}CA-Zertifikate{C.RESET}:")
+    print(f"  Default-Pfade: {ssl.get_default_verify_paths().cafile}")
+    print(f"\n{C.YELLOW}Tipp:{C.RESET} Gefundenen Proxy testen mit:")
+    print(f"  curl.exe -v --proxy http://PROXY:PORT {BASE_URL}/models")
+
+
 # --------------------------- Action-Parsing --------------------------------
 
 # Das Modell soll Aktionen als JSON in einem ```action ... ``` Block ausgeben.
@@ -408,6 +459,8 @@ def main():
     ap.add_argument("--base-url", default=BASE_URL,
                     help=f"Server-Basis-URL (default {BASE_URL})")
     ap.add_argument("--list-models", action="store_true", help="Verfuegbare Modelle anzeigen und beenden")
+    ap.add_argument("--debug-net", action="store_true",
+                    help="System-Proxy/Netzwerk-Konfiguration anzeigen und beenden")
     ap.add_argument("--proxy", default=PROXY,
                     help="HTTP(S)-Proxy, z.B. http://proxy:8080 (Zscaler/Firmennetz)")
     ap.add_argument("--ca-bundle", default=CA_BUNDLE,
@@ -424,6 +477,10 @@ def main():
     CA_BUNDLE = args.ca_bundle
     INSECURE = args.insecure
     VERBOSE = VERBOSE or args.verbose
+
+    if args.debug_net:
+        debug_net()
+        return
 
     if args.list_models:
         print(f"{C.CYAN}Modelle @ {BASE_URL}:{C.RESET}")

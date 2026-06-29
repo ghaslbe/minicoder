@@ -153,6 +153,18 @@ oft fehl:
   python3 mc.py --insecure "..."        # nur als Notnagel
   ```
 
+- **`timed out`** (besonders bei einem geratenen Proxy wie `127.0.0.1:9001`) →
+  dort lauscht kein brauchbarer Proxy. Den **echten** Proxy ermitteln:
+
+  ```bash
+  python3 mc.py --debug-net          # zeigt System-Proxy / PAC-URL / Registry
+  ```
+
+  Unter Windows steckt der Proxy hinter Zscaler meist in einer **PAC-Datei**
+  (`AutoConfigURL`), nicht in einem festen Host. `--debug-net` zeigt die PAC-URL;
+  diese im Browser öffnen und den `PROXY host:port`-Eintrag für den Zielhost
+  übernehmen.
+
 Entsprechende Env-Variablen: `MC_PROXY`, `MC_CA_BUNDLE` (sowie die Standard-Vars
 `HTTP_PROXY` / `HTTPS_PROXY`, die `mc` automatisch beachtet). `mc` gibt bei
 solchen Fehlern direkt einen passenden Hinweis aus.
