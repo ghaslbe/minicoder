@@ -912,8 +912,11 @@ def main():
         f"Vorhandene Dateien (rekursiv):\n{listing}\n\n"
         f"Wenn der Nutzer eine Datei ungenau benennt, ordne sie einer dieser Dateien "
         f"zu (find hilft beim unscharfen Suchen), statt blind eine neue anzulegen.")
-    messages = [{"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "system", "content": context_msg}]
+    # System-Prompt und Projektueberblick in EINER system-Message buendeln.
+    # Manche Chat-Templates (z.B. Ornith-GGUF) brechen bei zwei aufeinander-
+    # folgenden system-Rollen sofort leer ab — eine kombinierte ist universell
+    # vertraeglicher.
+    messages = [{"role": "system", "content": SYSTEM_PROMPT + "\n\n" + context_msg}]
 
     # Einmal-Modus
     if args.task:
