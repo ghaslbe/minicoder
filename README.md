@@ -538,10 +538,33 @@ curl -s "$MC_BASE_URL/models" | python3 -m json.tool
 Welche Modelle bereitstehen, hängt vom Server ab. Fürs Coden eignet sich
 z. B. `qwen3-coder:30b`.
 
+## Validierung & Git-Rollback
+
+Weil Modelle unzuverlässig sind (mal 6/6, mal kaputtes JSON), prüft `mc`
+geschriebene Dateien und kann einen ganzen Lauf zurücknehmen:
+
+- **Validierung nach dem Schreiben** (Default an, `--no-validate` schaltet ab):
+  geänderte Dateien bekannter Typen werden geprüft — `.py` (Syntax via `ast`),
+  `.json`, `.yaml`/`.yml` (wenn PyYAML da), `.php` (`php -l`, wenn installiert).
+  Andere/nachsichtige Typen (HTML, CSS, JS) werden übersprungen. Schlägt eine
+  Prüfung fehl, wird der Fehler **in den Loop zurückgespeist**, sodass das Modell
+  die Datei selbst korrigiert (Auto-Retry über die normalen Schritte).
+- **Git-Rollback** — **nur wenn gefahrlos möglich**: `git` installiert **und** im
+  Repo **und** Arbeitsbaum beim Start **sauber**. Dann merkt sich `mc` die
+  geänderten/angelegten Dateien und bietet am Ende an, den Lauf zu verwerfen
+  (getrackte → zurück auf HEAD, neu angelegte → gelöscht) — **ohne** deine
+  sonstigen Änderungen anzutasten. Ist die Bedingung nicht erfüllt (kein Git, kein
+  Repo, oder offene Änderungen), ist das Feature still deaktiviert.
+
+So bleibt von einem misslungenen Lauf nichts Kaputtes liegen — vorausgesetzt, du
+arbeitest in einem sauberen Git-Repo.
+
 ## Sicherheit
 
 - **Bestätigung** vor jedem Schreibvorgang und jedem Shell-Kommando
   (außer mit `--yes`).
+- **Validierung** geschriebener Dateien (py/json/yaml/php) + optionaler
+  **Git-Rollback** bei sauberem Repo (siehe oben).
 - Schrittlimit pro Aufgabe (Default **40**, via `--max-steps` / `MC_MAX_STEPS`).
 - **120 s** Timeout pro Shell-Kommando.
 - Tool-Ausgaben an das Modell werden auf **8000 Zeichen** gekürzt.

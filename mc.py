@@ -58,6 +58,12 @@ VERBOSE = os.environ.get("MC_VERBOSE", "") not in ("", "0", "false")  # passive 
 MAX_STEPS = int(os.environ.get("MC_MAX_STEPS", "40"))  # Sicherheitslimit pro Aufgabe
 MAX_OUTPUT_CHARS = 8000  # Trunkierung von Tool-Ausgaben an das Modell
 
+# Validierung geschriebener Dateien (bekannte Typen) + Git-Rollback.
+VALIDATE = True            # nach dem Schreiben bekannte Dateitypen pruefen
+GIT_ROLLBACK = False       # nur True, wenn git installiert + sauberes Repo (in main gesetzt)
+TOUCHED = []               # von mc geschriebene/geaenderte Pfade (fuer Rollback)
+MAX_FIX_ATTEMPTS = 3       # so oft darf das Modell eine ungueltige Datei nachbessern
+
 # Token-/Kostenzaehler ueber die ganze Sitzung (Kosten nur, wenn der Endpoint sie
 # liefert, z.B. OpenRouter via usage.cost).
 USAGE = {"prompt": 0, "completion": 0, "cost": 0.0, "reqs": 0}
@@ -813,6 +819,122 @@ def plan_phase(messages, model):
     return True
 
 
+# --------------------- Validierung & Git-Rollback --------------------------
+
+def _git(*args, timeout=15):
+    """Fuehrt ein git-Kommando aus, gibt (returncode, stdout) zurueck."""
+    try:
+        p = subprocess.run(["git", *args], capture_output=True, text=True, timeout=timeout)
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 127, ""
+
+
+def git_usable():
+    """True nur wenn: git installiert UND im Arbeitsbaum UND Baum SAUBER (keine
+    offenen Aenderungen). Nur dann ist ein exakter Rollback gefahrlos moeglich."""
+    rc, _ = _git("rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        return False, "kein Git-Repository"
+    rc, out = _git("status", "--porcelain")
+    if rc != 0:
+        return False, "git status fehlgeschlagen"
+    if out.strip():
+        return False, "Arbeitsbaum nicht sauber (offene Aenderungen)"
+    return True, "ok"
+
+
+def validate_path(path):
+    """Validiert eine Datei nach Typ. Gibt (status, meldung) zurueck, wobei status
+    'ok' | 'bad' | 'skip' ist. Unbekannte/nachsichtige Typen -> 'skip'."""
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except Exception as e:
+        return "bad", f"nicht lesbar: {e}"
+    if ext == ".py":
+        import ast
+        try:
+            ast.parse(text); return "ok", ""
+        except SyntaxError as e:
+            return "bad", f"Python-SyntaxError: Zeile {e.lineno}: {e.msg}"
+    if ext == ".json":
+        try:
+            json.loads(text); return "ok", ""
+        except json.JSONDecodeError as e:
+            return "bad", f"JSON ungueltig: {e}"
+    if ext in (".yaml", ".yml"):
+        try:
+            import yaml
+        except ImportError:
+            return "skip", ""
+        try:
+            yaml.safe_load(text); return "ok", ""
+        except Exception as e:
+            return "bad", f"YAML ungueltig: {e}"
+    if ext == ".php":
+        try:
+            p = subprocess.run(["php", "-l", path], capture_output=True, text=True, timeout=15)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return "skip", ""   # php nicht installiert -> nicht validierbar
+        if p.returncode == 0:
+            return "ok", ""
+        return "bad", f"PHP-Lint: {((p.stdout or '')+(p.stderr or '')).strip()[:200]}"
+    return "skip", ""
+
+
+def written_paths(name, action):
+    """Liefert die Pfade, die eine Schreib-/Edit-Aktion betrifft."""
+    if name in ("write_file", "edit_file"):
+        p = action.get("path")
+        return [p] if p else []
+    if name == "write_files":
+        return [f.get("path") for f in (action.get("files") or []) if f.get("path")]
+    return []
+
+
+def validate_written(paths):
+    """Validiert die geschriebenen Pfade. Gibt eine Fehlermeldung zurueck, wenn
+    welche ungueltig sind (sonst leerer String)."""
+    if not VALIDATE:
+        return ""
+    bad = []
+    for p in paths:
+        if not p or not os.path.isfile(p):
+            continue
+        status, msg = validate_path(p)
+        if status == "bad":
+            bad.append(f"  {p}: {msg}")
+    if bad:
+        return ("VALIDIERUNG FEHLGESCHLAGEN — folgende Dateien sind ungueltig und "
+                "muessen korrigiert werden:\n" + "\n".join(bad) +
+                "\nKorrigiere NUR diese Datei(en) (am besten mit edit_file oder einer "
+                "neuen, validen write_file).")
+    return ""
+
+
+def git_rollback():
+    """Setzt die von mc geaenderten/angelegten Dateien auf den Stand vor dem Lauf
+    zurueck: getrackte -> auf HEAD, neu angelegte -> loeschen. Nur sicher, weil der
+    Baum beim Start sauber war (in main geprueft)."""
+    restored, removed = [], []
+    for p in sorted(set(TOUCHED)):
+        rc, _ = _git("cat-file", "-e", f"HEAD:{p}")
+        if rc == 0:
+            _git("restore", "--source=HEAD", "--staged", "--worktree", "--", p)
+            restored.append(p)
+        else:
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+                removed.append(p)
+            except Exception:
+                pass
+    print(f"{C.GREEN}Rollback: {len(restored)} Datei(en) auf HEAD zurueckgesetzt, "
+          f"{len(removed)} neu angelegte geloescht.{C.RESET}")
+
+
 def run_task(messages, model):
     """Fuehrt die Agenten-Schleife aus, bis 'finish' oder das Schrittlimit erreicht ist."""
     for step in range(1, MAX_STEPS + 1):
@@ -848,14 +970,29 @@ def run_task(messages, model):
         ok, result = handler(action)
         marker = C.GREEN + "✓" if ok else C.RED + "✗"
         print(f"{marker}{C.RESET} {C.DIM}{result.splitlines()[0][:100]}{C.RESET}")
-        messages.append({"role": "user", "content": f"[Ergebnis von {name}]\n{result}"})
+
+        # Geschriebene Dateien fuer Rollback merken und (bekannte Typen) validieren.
+        valed = ""
+        if ok and name in ("write_file", "write_files", "edit_file"):
+            paths = written_paths(name, action)
+            for p in paths:
+                if p not in TOUCHED:
+                    TOUCHED.append(p)
+            valed = validate_written(paths)
+            if valed:
+                print(f"{C.RED}⚠ {valed.splitlines()[0]}{C.RESET}")
+
+        obs = f"[Ergebnis von {name}]\n{result}"
+        if valed:
+            obs += "\n" + valed
+        messages.append({"role": "user", "content": obs})
 
     print(f"{C.RED}Schrittlimit ({MAX_STEPS}) erreicht.{C.RESET}")
     return None
 
 
 def main():
-    global AUTO_YES, BASE_URL, PROXY, CA_BUNDLE, INSECURE, VERBOSE, MAX_STEPS
+    global AUTO_YES, BASE_URL, PROXY, CA_BUNDLE, INSECURE, VERBOSE, MAX_STEPS, VALIDATE, GIT_ROLLBACK
     ap = argparse.ArgumentParser(description="Mini Coding Tool (Ollama / OpenAI-kompatibel)")
     ap.add_argument("task", nargs="*", help="Aufgabe / Prompt (optional; sonst interaktiv)")
     ap.add_argument("--model", default=DEFAULT_MODEL, help=f"Modell (default {DEFAULT_MODEL})")
@@ -876,10 +1013,13 @@ def main():
                     help=f"Max. Agenten-Schritte pro Aufgabe (default {MAX_STEPS})")
     ap.add_argument("--plan", action="store_true",
                     help="Erst einen Plan zeigen und bestaetigen lassen, dann umsetzen")
+    ap.add_argument("--no-validate", action="store_true",
+                    help="Validierung geschriebener Dateien (py/json/yaml/php) abschalten")
     ap.add_argument("--yes", action="store_true", help="Alle Aktionen ohne Rueckfrage ausfuehren")
     args = ap.parse_args()
     AUTO_YES = args.yes
     MAX_STEPS = args.max_steps
+    VALIDATE = not args.no_validate
     # Plan-Phase: opt-in per --plan (mit --yes nicht sinnvoll, daher aus).
     plan_mode = args.plan and not AUTO_YES
     BASE_URL = args.base_url.rstrip("/")
@@ -903,6 +1043,17 @@ def main():
         print(f"{C.RED}Achtung: --yes aktiv, Aktionen werden ohne Rueckfrage ausgefuehrt.{C.RESET}")
     info(f"Arbeitsverzeichnis: {os.getcwd()}")
 
+    # Git-Rollback nur, wenn gefahrlos moeglich (git da + Repo + sauberer Baum).
+    if not AUTO_YES:
+        ok, why = git_usable()
+        GIT_ROLLBACK = ok
+        if ok:
+            info("Git-Rollback verfuegbar: Aenderungen koennen am Ende verworfen werden.")
+        else:
+            info(f"Git-Rollback nicht verfuegbar ({why}) — Aenderungen sind dann endgueltig.")
+    if VALIDATE:
+        info("Validierung aktiv: py/json/yaml/php werden nach dem Schreiben geprueft.")
+
     # Projektueberblick als Kontext: damit der Agent vorhandene Dateien kennt und
     # bei ungenauer Benennung die richtige trifft, statt eine neue anzulegen.
     overview = project_overview()
@@ -918,13 +1069,32 @@ def main():
     # vertraeglicher.
     messages = [{"role": "system", "content": SYSTEM_PROMPT + "\n\n" + context_msg}]
 
+    def after_run():
+        """Am Ende einer Aufgabe: noch ungueltige Dateien melden und (falls
+        moeglich) Git-Rollback anbieten."""
+        print_usage_summary()
+        if not TOUCHED:
+            return
+        still_bad = [p for p in set(TOUCHED) if os.path.isfile(p)
+                     and validate_path(p)[0] == "bad"]
+        if still_bad:
+            print(f"{C.RED}Achtung: {len(still_bad)} Datei(en) sind weiterhin "
+                  f"ungueltig:{C.RESET} " + ", ".join(still_bad))
+        if GIT_ROLLBACK and not AUTO_YES:
+            frage = ("Es sind ungueltige Dateien uebrig. Alle Aenderungen dieses Laufs "
+                     "per Git verwerfen?" if still_bad
+                     else "Alle Aenderungen dieses Laufs per Git verwerfen (Rollback)?")
+            if confirm(frage):
+                git_rollback()
+        TOUCHED.clear()
+
     # Einmal-Modus
     if args.task:
         messages.append({"role": "user", "content": " ".join(args.task)})
         if plan_mode and not plan_phase(messages, args.model):
             return
         run_task(messages, args.model)
-        print_usage_summary()
+        after_run()
         return
 
     # Interaktiver Modus
@@ -945,7 +1115,7 @@ def main():
         if plan_mode and not plan_phase(messages, args.model):
             continue
         run_task(messages, args.model)
-        print_usage_summary()
+        after_run()
 
 
 if __name__ == "__main__":
