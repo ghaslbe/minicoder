@@ -399,6 +399,7 @@ OpenRouter.
 | **deepseek/deepseek-v4-pro** | ☁️ Cloud (OpenRouter) | 55 s | 6/6 | $0.0101 | ✅ vollständig, alle 4 Endpunkte, sauberes CRUD-Frontend |
 | **google/gemma-4-26b-a4b-it** | ☁️ Cloud (OpenRouter) | 48 s | 6/6 | $0.0014 | ✅ vollständig — dasselbe Modell wie lokal `gemma4:26b-mlx`, nur ~5× schneller |
 | **Ornith-1.0-35B (Q3_K_L)** | 💻 Lokal (Mac mini) | **168 s** | 6/6 | – | ✅ vollständig, alle 4 Endpunkte, Edit/Delete — **schnellster lokaler Volllauf**; agentisch trainiert, traf das Protokoll diszipliniert (nach System-Message-Fix, s. u.) |
+| Ornith-1.0-35B (IQ3_XS) | 💻 Lokal (Mac mini) | 234 s | 5/6 | – | ⚠️ stärker quantisiert: langsamer, `package.json` fehlte, **3× Auto-Continuation** nötig (Antworten rissen ab), Backend ohne 404 — Quant-Verlust ggü. Q3_K_L sichtbar |
 | **qwen3-coder:30b** | 💻 Lokal (Mac mini) | 593 s | 6/6 | – | ✅ vollständig |
 | **gemma4:26b-mlx** | 💻 Lokal (Mac mini) | 261 s | 6/6 | – | ✅ vollständig, alle 4 Endpunkte, Frontend mit Edit/Delete |
 | gemma3:4b | 💻 Lokal (Mac mini) | 189 s | 2 | – | ⚠️ nur DB-Stub (kein `@app.route`), kein Frontend |

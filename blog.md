@@ -383,6 +383,33 @@ das *richtige Werkzeug* für die jeweilige Änderung wählen und den Bestand
 respektieren. Werkzeug (`edit_file`) **und** Modellurteil griffen hier zum ersten
 Mal perfekt ineinander.
 
+#### Quant-Vergleich: wenn Kompression die Disziplin frisst
+
+Die größeren Ornith-Quants (Q5/Q6/Q8 des 35B) passten nicht in die 24 GB — sie
+brachen beim Laden sofort ab (Ollama meldet das als „context deadline exceeded",
+faktisch ein OOM). Also wurde eine *stärker* komprimierte Variante getestet,
+`IQ3_XS` (~14–15 GB, imatrix). Sie lud — und lieferte den direkten Beleg, was
+aggressive Quantisierung kostet:
+
+| | Q3_K_L | IQ3_XS |
+|---|---:|---:|
+| Zeit | 168 s | 234 s |
+| Dateien | 6/6 | **5/6** (`package.json` fehlte) |
+| Auto-Continuation | 0× | **3×** |
+| Backend | Validierung + 404 | nur Validierung |
+
+Die stärkere Kompression machte das Modell nicht nur langsamer, sondern **weniger
+formdiszipliniert**: Antworten rissen dreimal mitten im Action-Block ab, und eine
+Datei ging dabei ganz verloren. Bezeichnend: alle drei Abbrüche kamen mit
+`finish_reason=stop` — also fing sie **nur der Strukturcheck** der Auto-Continuation
+(offener ```` ```action ````-Block), nicht das offizielle Token-Limit-Signal. Genau
+der Fall, für den das zweite Erkennungssignal eingebaut worden war. Ohne ihn hätte
+`IQ3_XS` *null* Dateien geschrieben; mit ihm immerhin 5 von 6. Schöner geht der
+Wert dieser Robustheits-Mechanik kaum zu zeigen — und zugleich die Lehre: **für
+agentische Aufgaben lieber einen Hauch weniger Kompression**, denn das Erste, was
+unter aggressivem Quant leidet, ist nicht die Sprache, sondern die *Genauigkeit*
+beim Einhalten des Formats.
+
 ---
 
 ## 7. Stromkosten-Rechnung (Mac mini M4 Pro)
