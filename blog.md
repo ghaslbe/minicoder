@@ -354,16 +354,24 @@ ganzen Benchmarks**, schneller als qwen3-coder (593 s), gemma4 (261 s) und qwopu
 schlichtes „PONG" verbrauchte es ~250 Tokens). Die agentische Spezialisierung zeigt
 sich: Es traf die Action-Blöcke sauber, ohne sie im Reasoning zu vergraben.
 
-**Aber: ein Gegentest zog die Euphorie gerade.** Derselbe Q3_K_L ein zweites Mal —
-und das Ergebnis war nur **4/6** in 182 s: ein `write_files`-Block hatte ungültiges
-JSON (`Expecting ':'`), wurde abgelehnt, und das Modell lieferte die fehlenden
-Dateien (u. a. die React-Hauptkomponente `App.jsx`) **nie nach**, sondern erklärte
-sich in Prosa für fertig — ganz ohne `finish`-Aktion. Hier griff auch keine
-Auto-Continuation, weil das JSON nicht *abgeschnitten*, sondern inhaltlich *kaputt*
-war. Die Lehre: Der makellose erste Lauf war zum Teil Glück. Lauf-zu-Lauf gibt es
-**spürbare Varianz** — einmal perfekt, einmal an einem fehlenden `:` gescheitert.
-Single-Run-Benchmarks zeichnen ein zu sauberes Bild; erst der Wiederholungslauf
-zeigt, wie wackelig Protokoll-Disziplin selbst bei einem guten Modell sein kann.
+**Aber: Gegentests zogen die Euphorie gerade.** Derselbe Q3_K_L mehrfach
+wiederholt — und das Bild wurde unruhig. Über **sechs** aufgezeichnete Läufe lagen
+die geschriebenen Dateien bei **0, 4, 5, 6, 6 und 7** (letzteres 6 + eine
+`vite.config.js` obendrauf), die Zeiten zwischen **97 s und 1007 s** — Faktor zehn.
+Nur etwa die **Hälfte** der Läufe ergab eine vollständige App. Mal war ein
+`write_files`-Block inhaltlich kaputtes JSON (`Expecting ':'`), das abgelehnt und
+**nie nachgeliefert** wurde (das Modell erklärte sich in Prosa für fertig, ohne
+`finish`); mal kam schlicht eine leere Antwort. Auto-Continuation half hier nicht,
+weil das JSON nicht *abgeschnitten*, sondern *inhaltlich falsch* war — ein anderer
+Fehlertyp.
+
+Die Lehre ist deutlicher als erhofft: Der makellose erste Lauf (168 s, 6/6) war
+**nicht repräsentativ, sondern das obere Ende**. Protokoll-Disziplin und
+Vollständigkeit schwanken bei diesem Modell massiv von Lauf zu Lauf. **Ein
+Single-Run-Benchmark lügt** — und genau deshalb sind tool-seitige Absicherungen
+(Auto-Continuation, und als nächster Schritt eine *Validierung der geschriebenen
+Dateien mit automatischem Retry*) kein Luxus, sondern das, was aus einem
+unzuverlässigen Modell ein brauchbares Ergebnis macht.
 
 Die Lektion ist die schönste des ganzen Projekts: **Ein neues Modell ist der beste
 Test für das eigene Werkzeug.** Ornith deckte einen Bug auf, der seit dem ersten Tag
