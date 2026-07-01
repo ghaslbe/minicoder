@@ -1093,11 +1093,11 @@ def main():
         models = list_models()
         print(f"{C.CYAN}Modelle @ {BASE_URL}:{C.RESET}")
         width = min(max((len(mid) for mid, _ in models), default=0), 60)
-        for mid, info in models:
-            if info == "gratis":
+        for mid, price in models:
+            if price == "gratis":
                 tag = f"  {C.GREEN}gratis{C.RESET}"
-            elif info:
-                tag = f"  {C.DIM}{info}{C.RESET}"
+            elif price:
+                tag = f"  {C.DIM}{price}{C.RESET}"
             else:
                 tag = ""
             print(f"  {mid:<{width}}{tag}")
